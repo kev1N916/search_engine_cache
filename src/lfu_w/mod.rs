@@ -1,6 +1,8 @@
-use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::cmp::{Ordering, Reverse};
+use std::collections::{BinaryHeap, HashMap};
 use std::hash::Hash;
+
+use priority_queue::PriorityQueue;
 
 struct Node<K, V> {
     key: K,
@@ -50,8 +52,8 @@ impl PriorityList {
 pub struct LFUCache<K, V> {
     capacity: usize,
     weighted: bool,
-    min_priority: usize,
     nodes: Vec<Node<K, V>>,
+    min_priority_queue: priority_queue::PriorityQueue<K, Reverse<usize>>,
     key_to_idx: HashMap<K, usize>,
     priority_to_list: HashMap<usize, PriorityList>,
     free_list: Vec<usize>,
@@ -63,8 +65,8 @@ impl<K: Clone + Hash + Eq, V> LFUCache<K, V> {
         LFUCache {
             capacity,
             weighted,
-            min_priority: 0,
             nodes: Vec::with_capacity(capacity),
+            min_priority_queue: PriorityQueue::new(),
             key_to_idx: HashMap::new(),
             priority_to_list: HashMap::new(),
             free_list: Vec::new(),
@@ -92,39 +94,33 @@ impl<K: Clone + Hash + Eq, V> LFUCache<K, V> {
             }
             // Create new node with frequency 1
             let idx = self.allocate_node(key.clone(), value, 1, weight);
-            self.key_to_idx.insert(key, idx);
-            self.add_to_priority_list(idx, 1*weight.unwrap_or_else(|| 1));
-            self.min_priority = 1*weight.unwrap_or_else(|| 1);
+            self.key_to_idx.insert(key.clone(), idx);
+            self.add_to_priority_list(idx, 1 * weight.unwrap_or_else(|| 1));
+            self.min_priority_queue.push(
+                key.clone(),
+                std::cmp::Reverse(1 * weight.unwrap_or_else(|| 1)),
+            );
         }
     }
 
     fn increment_priority(&mut self, idx: usize) {
-        let weight=self.nodes[idx].weight;
+        let weight = self.nodes[idx].weight;
         let old_freq = self.nodes[idx].freq;
         let new_freq = old_freq + 1;
 
-        self.remove_from_priority_list(idx, old_freq*weight);
-
-        // Update node frequency
+        self.remove_from_priority_list(idx, old_freq * weight);
         self.nodes[idx].freq = new_freq;
 
-        // Add to new frequency list
-        self.add_to_priority_list(idx, new_freq*weight);
-
-        // Update min_freq if necessary
-        if old_freq*weight == self.min_priority {
-            if let Some(list) = self.priority_to_list.get(&(old_freq*weight)) {
-                if list.size == 0 {
-                    self.min_priority = new_freq*weight;
-                }
-            }
-        }
+        // Add to new priority list
+        self.add_to_priority_list(idx, new_freq * weight);
+        self.min_priority_queue
+            .change_priority(&self.nodes[idx].key, std::cmp::Reverse(new_freq * weight));
     }
 
-    fn add_to_priority_list(&mut self, idx: usize, freq: usize) {
+    fn add_to_priority_list(&mut self, idx: usize, priority: usize) {
         let list = self
             .priority_to_list
-            .entry(freq)
+            .entry(priority)
             .or_insert_with(PriorityList::new);
 
         self.nodes[idx].next = list.head;
@@ -165,11 +161,12 @@ impl<K: Clone + Hash + Eq, V> LFUCache<K, V> {
 
     fn evict_lfu(&mut self) {
         // Remove the tail (least recently used) from min frequency list
-        if let Some(list) = self.priority_to_list.get(&self.min_priority) {
+        let min_priority = self.min_priority_queue.pop().unwrap();
+        if let Some(list) = self.priority_to_list.get(&min_priority.1.0) {
             if let Some(tail_idx) = list.tail {
                 let key = self.nodes[tail_idx].key.clone();
                 self.key_to_idx.remove(&key);
-                self.remove_from_priority_list(tail_idx, self.min_priority);
+                self.remove_from_priority_list(tail_idx, min_priority.1.0);
                 self.free_list.push(tail_idx);
             }
         }
@@ -217,106 +214,290 @@ impl<K: Clone + Hash + Eq, V> LFUCache<K, V> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_basic_operations() {
-        let mut cache = LFUCache::new(2, false);
+    // ========== Basic Unweighted Tests ==========
 
+    #[test]
+    fn test_basic_put_and_get() {
+        let mut cache = LFUCache::new(2, false);
         cache.put(1, "one", None);
         cache.put(2, "two", None);
 
         assert_eq!(cache.get(&1), Some(&"one"));
         assert_eq!(cache.get(&2), Some(&"two"));
+        assert_eq!(cache.len(), 2);
     }
 
     #[test]
-    fn test_lfu_eviction() {
+    fn test_get_nonexistent() {
+        let mut cache: LFUCache<i32, &str> = LFUCache::new(2, false);
+        assert_eq!(cache.get(&1), None);
+    }
+
+    #[test]
+    fn test_update_existing_key() {
         let mut cache = LFUCache::new(2, false);
+        cache.put(1, "one", None);
+        cache.put(1, "ONE", None);
 
-        cache.put(1, "one", None); // freq: 1
-        cache.put(2, "two", None); // freq: 1
-        cache.get(&1); // freq: 2
-        cache.put(3, "three", None); // Should evict key 2 (freq: 1)
+        assert_eq!(cache.get(&1), Some(&"ONE"));
+        assert_eq!(cache.len(), 1);
+    }
 
-        assert_eq!(cache.get(&1), Some(&"one"));
-        assert_eq!(cache.get(&2), None); // Evicted
+    #[test]
+    fn test_eviction_on_capacity() {
+        let mut cache = LFUCache::new(2, false);
+        cache.put(1, "one", None);
+        cache.put(2, "two", None);
+        cache.put(3, "three", None);
+
+        // Key 1 should be evicted (least frequently used)
+        assert_eq!(cache.get(&1), None);
+        assert_eq!(cache.get(&2), Some(&"two"));
+        assert_eq!(cache.get(&3), Some(&"three"));
+        assert_eq!(cache.len(), 2);
+    }
+
+    #[test]
+    fn test_lfu_eviction_with_different_frequencies() {
+        let mut cache = LFUCache::new(2, false);
+        cache.put(1, "one", None);
+        cache.put(2, "two", None);
+
+        // Access key 2 multiple times to increase its frequency
+        cache.get(&2);
+        cache.get(&2);
+
+        // Add a third item - key 1 should be evicted (lower frequency)
+        cache.put(3, "three", None);
+
+        assert_eq!(cache.get(&1), None);
+        assert_eq!(cache.get(&2), Some(&"two"));
+        assert_eq!(cache.get(&3), Some(&"three"));
+    }
+
+    #[test]
+    fn test_lru_within_same_frequency() {
+        let mut cache = LFUCache::new(2, false);
+        cache.put(1, "one", None);
+        cache.put(2, "two", None);
+
+        // Both have same frequency (1), so LRU should be evicted
+        cache.put(3, "three", None);
+
+        // Key 1 should be evicted (least recently used among freq=1)
+        assert_eq!(cache.get(&1), None);
+        assert_eq!(cache.get(&2), Some(&"two"));
         assert_eq!(cache.get(&3), Some(&"three"));
     }
 
     #[test]
     fn test_frequency_tracking() {
         let mut cache = LFUCache::new(3, false);
-
         cache.put(1, "one", None);
-        cache.put(2, "two", None);
-        cache.put(3, "three", None);
+
+        assert_eq!(cache.get_freq(&1), Some(1));
 
         cache.get(&1);
-        cache.get(&1);
-        cache.get(&2);
+        assert_eq!(cache.get_freq(&1), Some(2));
 
-        assert_eq!(cache.get_freq(&1), Some(3)); // 1 put + 2 gets
-        assert_eq!(cache.get_freq(&2), Some(2)); // 1 put + 1 get
-        assert_eq!(cache.get_freq(&3), Some(1)); // 1 put
+        cache.get(&1);
+        assert_eq!(cache.get_freq(&1), Some(3));
     }
 
     #[test]
-    fn test_same_freq_lru_order() {
+    fn test_update_increases_frequency() {
         let mut cache = LFUCache::new(2, false);
-
         cache.put(1, "one", None);
         cache.put(2, "two", None);
+
+        assert_eq!(cache.get_freq(&1), Some(1));
+
+        // Update key 1
+        cache.put(1, "ONE", None);
+        assert_eq!(cache.get_freq(&1), Some(2));
+
+        // Key 2 should be evicted (lower frequency)
         cache.put(3, "three", None);
 
-        assert_eq!(cache.get(&1), None); // Evicted (LRU within same frequency)
+        assert_eq!(cache.get(&1), Some(&"ONE"));
+        assert_eq!(cache.get(&2), None);
+        assert_eq!(cache.get(&3), Some(&"three"));
+    }
+
+    #[test]
+    fn test_is_empty() {
+        let mut cache: LFUCache<i32, &str> = LFUCache::new(2, false);
+        assert!(cache.is_empty());
+
+        cache.put(1, "one", None);
+        assert!(!cache.is_empty());
+
+        cache.put(2, "two", None);
+        cache.put(3, "three", None);
+        assert!(!cache.is_empty());
+    }
+
+    #[test]
+    fn test_single_capacity() {
+        let mut cache = LFUCache::new(1, false);
+        cache.put(1, "one", None);
+        assert_eq!(cache.get(&1), Some(&"one"));
+
+        cache.put(2, "two", None);
+        assert_eq!(cache.get(&1), None);
+        assert_eq!(cache.get(&2), Some(&"two"));
+    }
+
+    // ========== Weighted Tests ==========
+
+    #[test]
+    fn test_weighted_basic() {
+        let mut cache = LFUCache::new(3, true);
+        cache.put(1, "one", Some(1));
+        cache.put(2, "two", Some(2));
+
+        assert_eq!(cache.get(&1), Some(&"one"));
+        assert_eq!(cache.get(&2), Some(&"two"));
+    }
+
+    #[test]
+    fn test_weighted_eviction_by_priority() {
+        let mut cache = LFUCache::new(2, true);
+        cache.put(1, "one", Some(1)); // priority = 1 * 1 = 1
+        cache.put(2, "two", Some(3)); // priority = 1 * 3 = 3
+
+        // Key 1 has lower priority and should be evicted first
+        cache.put(3, "three", Some(1));
+
+        assert_eq!(cache.get(&1), None);
         assert_eq!(cache.get(&2), Some(&"two"));
         assert_eq!(cache.get(&3), Some(&"three"));
     }
 
     #[test]
-    fn test_update_existing_key() {
-        let mut cache = LFUCache::new(2, false);
+    fn test_weighted_frequency_increase() {
+        let mut cache = LFUCache::new(2, true);
+        cache.put(1, "one", Some(2)); // priority = 1 * 2 = 2
+        cache.put(2, "two", Some(1)); // priority = 1 * 1 = 1
 
-        cache.put(1, "one", None);
+        // Access key 2, increasing its priority to 2 * 1 = 2
+        cache.get(&2);
+
+        // Access key 1, increasing its priority to 2 * 2 = 4
         cache.get(&1);
-        cache.put(1, "ONE", None); // Update, should increment frequency
 
-        assert_eq!(cache.get(&1), Some(&"ONE"));
-        assert_eq!(cache.get_freq(&1), Some(4)); // put + get + put + get
-    }
+        // Add third item - key 2 should be evicted (lower priority)
+        cache.put(3, "three", Some(1));
 
-    #[test]
-    fn test_complex_scenario() {
-        let mut cache = LFUCache::new(3, false);
-
-        cache.put(1, 1, None);
-        cache.put(2, 2, None);
-        cache.put(3, 3, None);
-
-        cache.get(&1); // 1: freq=2
-        cache.get(&1); // 1: freq=3
-        cache.get(&2); // 2: freq=2
-
-        cache.put(4, 4, None); // Should evict 3 (freq=1)
-
-        assert_eq!(cache.get(&3), None);
-        assert_eq!(cache.get(&1), Some(&1));
-        assert_eq!(cache.get(&2), Some(&2));
-        assert_eq!(cache.get(&4), Some(&4));
-
-        cache.put(5, 5, None); // Should evict 4 (freq=2, but most recent among freq=2)
-
-        assert_eq!(cache.get(&4), None);
-    }
-
-    #[test]
-    fn test_capacity_one() {
-        let mut cache = LFUCache::new(1, false);
-
-        cache.put(1, "one", None);
         assert_eq!(cache.get(&1), Some(&"one"));
+        assert_eq!(cache.get(&2), None);
+        assert_eq!(cache.get(&3), Some(&"three"));
+    }
 
-        cache.put(2, "two", None); // Should evict 1
+    #[test]
+    fn test_weighted_high_weight_survives() {
+        let mut cache = LFUCache::new(2, true);
+        cache.put(1, "one", Some(10)); // priority = 1 * 10 = 10
+        cache.put(2, "two", Some(1)); // priority = 1 * 1 = 1
+        cache.put(3, "three", Some(1)); // priority = 1 * 1 = 1
+
+        // Key 1 should survive due to high weight
+        assert_eq!(cache.get(&1), Some(&"one"));
+        assert_eq!(cache.get(&2), None);
+        assert_eq!(cache.get(&3), Some(&"three"));
+    }
+
+    #[test]
+    fn test_weighted_equal_priority_lru() {
+        let mut cache = LFUCache::new(2, true);
+        cache.put(1, "one", Some(2)); // priority = 1 * 2 = 2
+        cache.put(2, "two", Some(2)); // priority = 1 * 2 = 2
+
+        // Both have same priority, LRU should be evicted
+        cache.put(3, "three", Some(1));
+
         assert_eq!(cache.get(&1), None);
         assert_eq!(cache.get(&2), Some(&"two"));
+        assert_eq!(cache.get(&3), Some(&"three"));
+    }
+
+    #[test]
+    fn test_weighted_update_maintains_weight() {
+        let mut cache = LFUCache::new(2, true);
+        cache.put(1, "one", Some(5)); // priority = 1 * 5 = 5
+
+        // Update should maintain weight and increase frequency
+        cache.put(1, "ONE", Some(5)); // priority = 2 * 5 = 10
+
+        cache.put(2, "two", Some(1)); // priority = 1 * 1 = 1
+
+        // Add third item - key 2 should be evicted
+        cache.put(3, "three", Some(2)); // priority = 1 * 2 = 2
+
+        assert_eq!(cache.get(&1), Some(&"ONE"));
+        assert_eq!(cache.get(&2), None);
+        assert_eq!(cache.get(&3), Some(&"three"));
+    }
+
+    #[test]
+    fn test_weighted_complex_scenario() {
+        let mut cache = LFUCache::new(3, true);
+        cache.put(1, "one", Some(1)); // priority = 1 * 1 = 1
+        cache.put(2, "two", Some(2)); // priority = 1 * 2 = 2
+        cache.put(3, "three", Some(3)); // priority = 1 * 3 = 3
+
+        // Access patterns
+        cache.get(&1); // priority = 2 * 1 = 2
+        cache.get(&1); // priority = 3 * 1 = 3
+        cache.get(&2); // priority = 2 * 2 = 4
+
+        // At this point: key1=3, key2=4, key3=3
+        // key3 is LRU among priority=3
+
+        cache.put(4, "four", Some(1)); // priority = 1 * 1 = 1
+
+        // Key 4 should evict key 3 (lowest priority)
+        assert_eq!(cache.get(&1), Some(&"one"));
+        assert_eq!(cache.get(&2), Some(&"two"));
+        assert_eq!(cache.get(&3), None);
+        assert_eq!(cache.get(&4), Some(&"four"));
+    }
+
+    #[test]
+    #[should_panic(expected = "Capacity must be greater than 0")]
+    fn test_zero_capacity_panics() {
+        let _cache: LFUCache<i32, &str> = LFUCache::new(0, false);
+    }
+
+    // ========== Large Capacity Tests ==========
+
+    #[test]
+    fn test_large_capacity() {
+        let mut cache = LFUCache::new(100, false);
+        for i in 0..100 {
+            cache.put(i, i * 2, None);
+        }
+
+        assert_eq!(cache.len(), 100);
+
+        // Access some keys
+        for i in 0..50 {
+            assert_eq!(cache.get(&i), Some(&(i * 2)));
+        }
+
+        // Add more items
+        for i in 100..150 {
+            cache.put(i, i * 2, None);
+        }
+
+        // First 50 should still be there (higher frequency)
+        for i in 0..50 {
+            assert_eq!(cache.get(&i), Some(&(i * 2)));
+        }
+
+        // Items 50-99 should have been evicted
+        for i in 50..100 {
+            assert_eq!(cache.get(&i), None);
+        }
     }
 }
