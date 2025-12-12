@@ -1,7 +1,7 @@
 extern crate priority_queue;
-mod landlord;
-mod lfu_w;
-mod lru;
+pub mod landlord;
+pub mod lfu_w;
+pub mod lru;
 #[cfg(test)]
 mod integration_tests {
     use super::*;
