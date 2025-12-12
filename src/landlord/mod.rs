@@ -28,7 +28,7 @@ impl<K: Clone + Hash + Eq, V> Landlord<K, V> {
     }
 
     pub fn put(&mut self, key: K, value: V, weight: u32) {
-        if self.cache.contains_key(&key){
+        if self.cache.contains_key(&key) {
             self.remove(&key);
         }
         if self.cache.len() >= self.capacity {
@@ -44,7 +44,7 @@ impl<K: Clone + Hash + Eq, V> Landlord<K, V> {
         self.pq.push(key.clone(), Reverse(self.l + weight));
     }
 
-    fn remove(&mut self,key: &K){
+    fn remove(&mut self, key: &K) {
         self.cache.remove(&key);
         self.pq.remove(key);
     }
@@ -60,7 +60,7 @@ impl<K: Clone + Hash + Eq, V> Landlord<K, V> {
 
     pub fn evict(&mut self) {
         if let Some(evicted_key) = self.pq.pop() {
-            self.l = evicted_key.1.0;
+            self.l = evicted_key.1 .0;
             self.cache.remove(&evicted_key.0);
         }
     }

@@ -1,7 +1,12 @@
 [package]
-name = "rust_cache"
+name = "search_engine_cache"
 version = "0.1.0"
-edition = "2024"
+authors = ["Kevin Jacob kevintj916@gmail.com" ]
+description = "Implementation of various caching algorithms like Landlord,weighted LFU and LRU commonly used in search engines "
+keywords = ["caching", "search_engine", "indexing","inverted_index","landlord"]
+repository = "https://github.com/kev1N916/search_engine_cache"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
 
 [dependencies]
 priority-queue = "2.0.0"
