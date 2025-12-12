@@ -1,6 +1,6 @@
 [package]
 name = "search_engine_cache"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Kevin Jacob kevintj916@gmail.com" ]
 description = "Implementation of various caching algorithms like Landlord,weighted LFU and LRU commonly used in search engines "
 keywords = ["caching", "search_engine", "indexing","inverted_index","landlord"]
