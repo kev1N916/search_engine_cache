@@ -2,6 +2,25 @@ extern crate priority_queue;
 pub mod landlord;
 pub mod lfu_w;
 pub mod lru;
+
+pub trait Cache<K, V> {
+    /// Creates a new cache with the specified capacity
+    fn new(capacity: usize) -> Self;
+
+    /// Retrieves a value from the cache by key
+    /// Returns None if the key doesn't exist
+    fn get(&mut self, key: &K) -> Option<&V>;
+
+    /// Inserts a key-value pair with an associated weight
+    fn put(&mut self, key: K, value: V, weight: u32);
+
+    /// Returns the number of items currently in the cache
+    fn len(&self) -> usize;
+
+    /// Returns true if the cache is empty
+    fn is_empty(&self) -> bool;
+}
+
 #[cfg(test)]
 mod integration_tests {
     use super::*;
@@ -9,25 +28,25 @@ mod integration_tests {
     #[test]
     fn test_lru_basic_usage() {
         let mut cache = lru::LRUCache::new(3);
-        cache.put("a", 1);
-        cache.put("b", 2);
-        cache.put("c", 3);
+        cache.put("a", 1, 0);
+        cache.put("b", 2, 0);
+        cache.put("c", 3, 0);
 
         assert_eq!(cache.get(&"a"), Some(&1));
         assert_eq!(cache.len(), 3);
 
         // Accessing "a" makes it most recently used
-        cache.put("d", 4);
+        cache.put("d", 4, 0);
         assert_eq!(cache.get(&"b"), None); // "b" was LRU
     }
 
     #[test]
     fn test_lfu_unweighted_usage() {
-        let mut cache = lfu_w::LFUCache::new(3, false);
+        let mut cache = lfu_w::LFUCache::new(3);
 
-        cache.put(1, "apple", None);
-        cache.put(2, "banana", None);
-        cache.put(3, "cherry", None);
+        cache.put(1, "apple", 1);
+        cache.put(2, "banana", 1);
+        cache.put(3, "cherry", 1);
 
         // Access item 1 multiple times (increases frequency)
         cache.get(&1);
@@ -38,7 +57,7 @@ mod integration_tests {
         cache.get(&2);
 
         // Adding a 4th item evicts the least frequent (key 3)
-        cache.put(4, "date", None);
+        cache.put(4, "date", 1);
 
         assert_eq!(cache.get(&3), None); // Evicted (freq=1)
         assert_eq!(cache.get(&1), Some(&"apple")); // Safe (freq=4)
@@ -46,11 +65,11 @@ mod integration_tests {
 
     #[test]
     fn test_lfu_weighted_usage() {
-        let mut cache = lfu_w::LFUCache::new(2, true);
-        cache.put(1, "low_priority", Some(1));
-        cache.put(2, "high_priority", Some(100));
+        let mut cache = lfu_w::LFUCache::new(2);
+        cache.put(1, "low_priority", 1);
+        cache.put(2, "high_priority", 100);
 
-        cache.put(3, "medium_priority", Some(50));
+        cache.put(3, "medium_priority", 50);
         assert_eq!(cache.get(&1), None); // Evicted due to low weight
         assert_eq!(cache.get(&2), Some(&"high_priority"));
     }
@@ -59,17 +78,20 @@ mod integration_tests {
     fn test_all_caches_with_strings() {
         // LRU
         let mut lru = lru::LRUCache::new(2);
-        lru.put("hello", "world");
+
+        lru.put("hello", "world", 0);
         assert_eq!(lru.get(&"hello"), Some(&"world"));
 
         // LFU
-        let mut lfu = lfu_w::LFUCache::new(2, false);
-        lfu.put("foo", "bar", None);
+        let mut lfu = lfu_w::LFUCache::new(2);
+
+        lfu.put("foo", "bar", 1);
         assert_eq!(lfu.get(&"foo"), Some(&"bar"));
 
         // Landlord
         let mut landlord = landlord::Landlord::new(2);
+
         landlord.put("key".to_string(), "value", 10);
-        assert_eq!(landlord.get("key".to_string()), Some(&"value"));
+        assert_eq!(landlord.get(&"key".to_string()), Some(&"value"));
     }
 }

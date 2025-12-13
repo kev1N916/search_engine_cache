@@ -4,6 +4,8 @@ use std::collections::HashMap;
 
 use std::hash::Hash;
 
+use crate::Cache;
+
 pub struct LandlordNode<V> {
     value: V,
     weight: u32,
@@ -16,8 +18,8 @@ pub struct Landlord<K, V> {
     cache: HashMap<K, LandlordNode<V>>,
 }
 
-impl<K: Clone + Hash + Eq, V> Landlord<K, V> {
-    pub fn new(capacity: usize) -> Self {
+impl<K: Clone + Hash + Eq, V> Cache<K, V> for Landlord<K, V> {
+    fn new(capacity: usize) -> Self {
         assert!(capacity > 0, "Capacity must be greater than 0");
         Landlord {
             capacity,
@@ -27,38 +29,44 @@ impl<K: Clone + Hash + Eq, V> Landlord<K, V> {
         }
     }
 
-    pub fn put(&mut self, key: K, value: V, weight: u32) {
-        if self.cache.contains_key(&key) {
-            self.remove(&key);
-        }
-        if self.cache.len() >= self.capacity {
-            self.evict();
-        }
-        self.cache.insert(
-            key.clone(),
-            LandlordNode {
-                value: value,
-                weight: weight,
-            },
-        );
-        self.pq.push(key.clone(), Reverse(self.l + weight));
-    }
-
-    fn remove(&mut self, key: &K) {
-        self.cache.remove(&key);
-        self.pq.remove(key);
-    }
-    pub fn get(&mut self, key: K) -> Option<&V> {
+    fn get(&mut self, key: &K) -> Option<&V> {
         if let Some(landlord_node) = self.cache.get(&key) {
             let new_priority = self.l + landlord_node.weight;
-            self.pq.change_priority(&key, Reverse(new_priority));
+            self.pq.change_priority(key, Reverse(new_priority));
             Some(&landlord_node.value)
         } else {
             None
         }
     }
 
-    pub fn evict(&mut self) {
+    fn put(&mut self, key: K, value: V, weight: u32) {
+        if self.cache.contains_key(&key) {
+            self.remove(&key);
+        }
+        if self.cache.len() >= self.capacity {
+            self.evict();
+        }
+        self.cache
+            .insert(key.clone(), LandlordNode { value, weight });
+        self.pq.push(key.clone(), Reverse(self.l + weight));
+    }
+
+    fn len(&self) -> usize {
+        self.pq.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.pq.is_empty()
+    }
+}
+
+impl<K: Clone + Hash + Eq, V> Landlord<K, V> {
+    fn remove(&mut self, key: &K) {
+        self.cache.remove(&key);
+        self.pq.remove(key);
+    }
+
+    fn evict(&mut self) {
         if let Some(evicted_key) = self.pq.pop() {
             self.l = evicted_key.1 .0;
             self.cache.remove(&evicted_key.0);
@@ -88,14 +96,14 @@ mod tests {
         let mut cache = Landlord::new(3);
         cache.put("key1".to_string(), 100, 10);
 
-        let value = cache.get("key1".to_string());
+        let value = cache.get(&"key1".to_string());
         assert_eq!(value, Some(&100));
     }
 
     #[test]
     fn test_get_nonexistent_key() {
         let mut cache: Landlord<String, i32> = Landlord::new(3);
-        let value = cache.get("nonexistent".to_string());
+        let value = cache.get(&"nonexistent".to_string());
         assert_eq!(value, None);
     }
 
@@ -106,9 +114,9 @@ mod tests {
         cache.put("key2".to_string(), 200, 20);
         cache.put("key3".to_string(), 300, 30);
 
-        assert_eq!(cache.get("key1".to_string()), Some(&100));
-        assert_eq!(cache.get("key2".to_string()), Some(&200));
-        assert_eq!(cache.get("key3".to_string()), Some(&300));
+        assert_eq!(cache.get(&"key1".to_string()), Some(&100));
+        assert_eq!(cache.get(&"key2".to_string()), Some(&200));
+        assert_eq!(cache.get(&"key3".to_string()), Some(&300));
     }
 
     #[test]
@@ -120,9 +128,9 @@ mod tests {
         // This should trigger eviction of key1 (lowest priority)
         cache.put("key3".to_string(), 300, 30);
 
-        assert_eq!(cache.get("key1".to_string()), None);
-        assert_eq!(cache.get("key2".to_string()), Some(&200));
-        assert_eq!(cache.get("key3".to_string()), Some(&300));
+        assert_eq!(cache.get(&"key1".to_string()), None);
+        assert_eq!(cache.get(&"key2".to_string()), Some(&200));
+        assert_eq!(cache.get(&"key3".to_string()), Some(&300));
     }
 
     #[test]
@@ -132,14 +140,14 @@ mod tests {
         cache.put("key2".to_string(), 200, 5);
 
         // Access key1 to boost its priority
-        cache.get("key1".to_string());
+        cache.get(&"key1".to_string());
 
         // Adding key3 should evict key2 (lowest priority after key1 was accessed)
         cache.put("key3".to_string(), 300, 15);
 
-        assert_eq!(cache.get("key1".to_string()), Some(&100));
-        assert_eq!(cache.get("key2".to_string()), None);
-        assert_eq!(cache.get("key3".to_string()), Some(&300));
+        assert_eq!(cache.get(&"key1".to_string()), Some(&100));
+        assert_eq!(cache.get(&"key2".to_string()), None);
+        assert_eq!(cache.get(&"key3".to_string()), Some(&300));
     }
 
     #[test]
@@ -163,8 +171,8 @@ mod tests {
 
         cache.evict();
 
-        assert_eq!(cache.get("key1".to_string()), None);
-        assert_eq!(cache.get("key2".to_string()), Some(&200));
+        assert_eq!(cache.get(&"key1".to_string()), None);
+        assert_eq!(cache.get(&"key2".to_string()), Some(&200));
     }
 
     #[test]
@@ -184,10 +192,10 @@ mod tests {
         // Adding another item should evict low_weight (lowest priority)
         cache.put("new_item".to_string(), 4, 30);
 
-        assert_eq!(cache.get("low_weight".to_string()), None);
-        assert_eq!(cache.get("high_weight".to_string()), Some(&2));
-        assert_eq!(cache.get("medium_weight".to_string()), Some(&3));
-        assert_eq!(cache.get("new_item".to_string()), Some(&4));
+        assert_eq!(cache.get(&"low_weight".to_string()), None);
+        assert_eq!(cache.get(&"high_weight".to_string()), Some(&2));
+        assert_eq!(cache.get(&"medium_weight".to_string()), Some(&3));
+        assert_eq!(cache.get(&"new_item".to_string()), Some(&4));
     }
 
     #[test]
@@ -196,7 +204,7 @@ mod tests {
         cache.put("key1".to_string(), 100, 10);
         cache.put("key1".to_string(), 200, 20);
 
-        assert_eq!(cache.get("key1".to_string()), Some(&200));
+        assert_eq!(cache.get(&"key1".to_string()), Some(&200));
     }
 
     #[test]
@@ -206,9 +214,9 @@ mod tests {
         cache.put(2, "value2", 20);
         cache.put(3, "value3", 30);
 
-        assert_eq!(cache.get(1), Some(&"value1"));
-        assert_eq!(cache.get(2), Some(&"value2"));
-        assert_eq!(cache.get(3), Some(&"value3"));
+        assert_eq!(cache.get(&1), Some(&"value1"));
+        assert_eq!(cache.get(&2), Some(&"value2"));
+        assert_eq!(cache.get(&3), Some(&"value3"));
     }
 
     #[test]
