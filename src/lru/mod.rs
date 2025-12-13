@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-use crate::Cache;
-
 struct Node<K, V> {
     key: K,
     value: V,
@@ -19,8 +17,8 @@ pub struct LRUCache<K, V> {
     free_list: Vec<usize>,
 }
 
-impl<K: Clone + Hash + Eq, V> Cache<K, V> for LRUCache<K, V> {
-    fn new(capacity: usize) -> Self {
+impl<K: Clone + Hash + Eq, V> LRUCache<K, V> {
+    pub fn new(capacity: usize) -> Self {
         assert!(capacity > 0, "Capacity must be greater than 0");
         LRUCache {
             capacity,
@@ -32,13 +30,13 @@ impl<K: Clone + Hash + Eq, V> Cache<K, V> for LRUCache<K, V> {
         }
     }
 
-    fn get(&mut self, key: &K) -> Option<&V> {
+    pub fn get(&mut self, key: &K) -> Option<&V> {
         let idx = *self.map.get(key)?;
         self.move_to_front(idx);
         Some(&self.nodes[idx].value)
     }
 
-    fn put(&mut self, key: K, value: V, _weight: u32) {
+    pub fn put(&mut self, key: K, value: V, _weight: u32) {
         if let Some(&idx) = self.map.get(&key) {
             self.nodes[idx].value = value;
             self.move_to_front(idx);
@@ -72,16 +70,14 @@ impl<K: Clone + Hash + Eq, V> Cache<K, V> for LRUCache<K, V> {
         }
     }
 
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.map.len()
     }
 
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
-}
 
-impl<K: Clone + Hash + Eq, V> LRUCache<K, V> {
     fn move_to_front(&mut self, idx: usize) {
         if self.head == Some(idx) {
             return;

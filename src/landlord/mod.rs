@@ -4,8 +4,6 @@ use std::collections::HashMap;
 
 use std::hash::Hash;
 
-use crate::Cache;
-
 pub struct LandlordNode<V> {
     value: V,
     weight: u32,
@@ -18,8 +16,8 @@ pub struct Landlord<K, V> {
     cache: HashMap<K, LandlordNode<V>>,
 }
 
-impl<K: Clone + Hash + Eq, V> Cache<K, V> for Landlord<K, V> {
-    fn new(capacity: usize) -> Self {
+impl<K: Clone + Hash + Eq, V> Landlord<K, V> {
+    pub fn new(capacity: usize) -> Self {
         assert!(capacity > 0, "Capacity must be greater than 0");
         Landlord {
             capacity,
@@ -29,7 +27,7 @@ impl<K: Clone + Hash + Eq, V> Cache<K, V> for Landlord<K, V> {
         }
     }
 
-    fn get(&mut self, key: &K) -> Option<&V> {
+    pub fn get(&mut self, key: &K) -> Option<&V> {
         if let Some(landlord_node) = self.cache.get(&key) {
             let new_priority = self.l + landlord_node.weight;
             self.pq.change_priority(key, Reverse(new_priority));
@@ -39,7 +37,7 @@ impl<K: Clone + Hash + Eq, V> Cache<K, V> for Landlord<K, V> {
         }
     }
 
-    fn put(&mut self, key: K, value: V, weight: u32) {
+    pub fn put(&mut self, key: K, value: V, weight: u32) {
         if self.cache.contains_key(&key) {
             self.remove(&key);
         }
@@ -51,16 +49,14 @@ impl<K: Clone + Hash + Eq, V> Cache<K, V> for Landlord<K, V> {
         self.pq.push(key.clone(), Reverse(self.l + weight));
     }
 
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.pq.len()
     }
 
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.pq.is_empty()
     }
-}
 
-impl<K: Clone + Hash + Eq, V> Landlord<K, V> {
     fn remove(&mut self, key: &K) {
         self.cache.remove(&key);
         self.pq.remove(key);

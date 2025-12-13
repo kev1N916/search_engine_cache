@@ -3,22 +3,63 @@ pub mod landlord;
 pub mod lfu_w;
 pub mod lru;
 
-pub trait Cache<K, V> {
-    /// Creates a new cache with the specified capacity
-    fn new(capacity: usize) -> Self;
+use std::hash::Hash;
 
-    /// Retrieves a value from the cache by key
-    /// Returns None if the key doesn't exist
-    fn get(&mut self, key: &K) -> Option<&V>;
+use landlord::Landlord;
+use lfu_w::LFUCache;
+use lru::LRUCache;
+pub enum CacheType<K, V> {
+    LRU(LRUCache<K, V>),
+    LFU(LFUCache<K, V>),
+    Landlord(Landlord<K, V>),
+}
 
-    /// Inserts a key-value pair with an associated weight
-    fn put(&mut self, key: K, value: V, weight: u32);
+impl<K: Clone + Hash + Eq, V> CacheType<K, V> {
+    pub fn new_lru(capacity: usize) -> Self {
+        CacheType::LRU(LRUCache::new(capacity))
+    }
 
-    /// Returns the number of items currently in the cache
-    fn len(&self) -> usize;
+    pub fn new_lfu(capacity: usize) -> Self {
+        CacheType::LFU(LFUCache::new(capacity))
+    }
 
-    /// Returns true if the cache is empty
-    fn is_empty(&self) -> bool;
+    pub fn new_landlord(capacity: usize) -> Self {
+        CacheType::Landlord(Landlord::new(capacity))
+    }
+}
+
+impl<K: Clone + Hash + Eq, V> CacheType<K, V> {
+    pub fn put(&mut self, key: K, value: V, weight: u32) {
+        match self {
+            CacheType::LRU(cache) => cache.put(key, value, weight),
+            CacheType::LFU(cache) => cache.put(key, value, weight),
+            CacheType::Landlord(cache) => cache.put(key, value, weight),
+        }
+    }
+
+    pub fn get(&mut self, key: &K) -> Option<&V> {
+        match self {
+            CacheType::LRU(cache) => cache.get(key),
+            CacheType::LFU(cache) => cache.get(key),
+            CacheType::Landlord(cache) => cache.get(key),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            CacheType::LRU(cache) => cache.len(),
+            CacheType::LFU(cache) => cache.len(),
+            CacheType::Landlord(cache) => cache.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            CacheType::LRU(cache) => cache.is_empty(),
+            CacheType::LFU(cache) => cache.is_empty(),
+            CacheType::Landlord(cache) => cache.is_empty(),
+        }
+    }
 }
 
 #[cfg(test)]

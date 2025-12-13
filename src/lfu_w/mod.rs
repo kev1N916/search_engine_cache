@@ -4,8 +4,6 @@ use std::hash::Hash;
 
 use priority_queue::PriorityQueue;
 
-use crate::Cache;
-
 struct Node<K, V> {
     key: K,
     value: V,
@@ -40,8 +38,8 @@ pub struct LFUCache<K, V> {
     free_list: Vec<usize>,
 }
 
-impl<K: Clone + Hash + Eq, V> Cache<K, V> for LFUCache<K, V> {
-    fn new(capacity: usize) -> Self {
+impl<K: Clone + Hash + Eq, V> LFUCache<K, V> {
+    pub fn new(capacity: usize) -> Self {
         assert!(capacity > 0, "Capacity must be greater than 0");
         LFUCache {
             capacity,
@@ -53,13 +51,13 @@ impl<K: Clone + Hash + Eq, V> Cache<K, V> for LFUCache<K, V> {
         }
     }
 
-    fn get(&mut self, key: &K) -> Option<&V> {
+    pub fn get(&mut self, key: &K) -> Option<&V> {
         let idx = *self.key_to_idx.get(key)?;
         self.increment_priority(idx);
         Some(&self.nodes[idx].value)
     }
 
-    fn put(&mut self, key: K, value: V, weight: u32) {
+    pub fn put(&mut self, key: K, value: V, weight: u32) {
         if let Some(&idx) = self.key_to_idx.get(&key) {
             // Update existing key
             self.nodes[idx].value = value;
@@ -78,16 +76,14 @@ impl<K: Clone + Hash + Eq, V> Cache<K, V> for LFUCache<K, V> {
         }
     }
 
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.key_to_idx.len()
     }
 
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.key_to_idx.is_empty()
     }
-}
 
-impl<K: Clone + Hash + Eq, V> LFUCache<K, V> {
     fn increment_priority(&mut self, idx: usize) {
         let weight = self.nodes[idx].weight;
         let old_freq = self.nodes[idx].freq;
